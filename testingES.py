@@ -42,7 +42,9 @@ TournamentSize = 3 # Parameter used for selection
 NGEN = 2 # Number of generations
 CXPB, MUTPB, SIGMA, INDPB = 0.5, 0.3, 0.1, 0.2
 MIN_STRATEGY, MAX_STRATEGY = 0.05, 0.3
-smin, smax = 0.01, 0.5
+smin, smax = 0.01, 0.5 # Minimum and maximum "strategies" to use for updating parameters. 
+# a strategy specifies the standard deviation of the gaussin to draw mutations
+# Each individual has a different strategy, and each parameter within an individual has a different strategy
 
 # Tags to use for reading output from seeding algorithm
 mlTag = 'mlTag'
