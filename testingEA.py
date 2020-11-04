@@ -40,10 +40,12 @@ CXPB, MUTPB, SIGMA, INDPB = 0.5, 0.3, 0.1, 0.2
 NAMES_DEF = []
 for oneName in NAME_TO_FACTOR:
     NAMES_DEF.append(oneName)
-# MIN_STRATEGY = 0.01
-# MAX_STRATEGY = .5
-plotDirectory = "zEATest" # Where to save the plots
-
+MIN_STRATEGY = 0.05
+MAX_STRATEGY = .3
+smin, smax = 0.01, 0.5
+plotDirectory = "zgarbage324"  #"zES_muon_gen100_pop50_srange0.01:0.5_eval2" # Where to save the plots
+ttbarSampleInput = ['--input-dir', 'sim_generic_ATLASB_ttbar_e1_pu200_eta2.5/']
+ttbarSampleBool = False
 
 def normalizedToActual(normalizedInd):
     newDict = {}
@@ -80,6 +82,9 @@ def indPrint(ind):
 def paramsToInput(params, names):
     ret = ['./ActsExampleTestSeedAlgorithm',
            '--response-file', 'config_seeding_ml']
+    if (ttbarSampleBool):
+        ret.append(ttbarSampleInput[0])
+        ret.append(ttbarSampleInput[1])
     if len(params) != len(names):
         raise Exception("Length of Params must equal names in paramsToInput")
     i = 0
@@ -118,16 +123,16 @@ def executeAlg(arg):
 creator.create("Fitness", base.Fitness, weights=(1.0, -1.0, -1.0))
 creator.create("Individual", array.array, typecode="d",
                fitness=creator.Fitness, strategy=None)
-# creator.create("Strategy", array.array, typecode="d")
+creator.create("Strategy", array.array, typecode="d")
 
 
 # Initializes a population from a single individual
-def initPopulation(pcls, ind_init, filename):
+def initPopulation(pcls, scls, ind_init, filename):
     with open(filename, "r") as pop_file:
         contents = json.load(pop_file)
     pop = pcls(ind_init(contents[0]) for i in range(NPOP))
-    # for ind in pop:
-    #     ind.strategy = scls(random.uniform(smin, smax) for _ in range(size))
+    for ind in pop:
+        ind.strategy = scls(random.uniform(smin, smax) for _ in range(len(ind)))
     return pop
 
 
@@ -137,7 +142,7 @@ toolbox = base.Toolbox()
 # toolbox.register("attr_flt", random.uniform, FLT_MIN, FLT_MAX)
 # toolbox.register("individual", tools.initRepeat, creator.Individual,
 #                  toolbox.attr_flt, n=N_CYCLES)
-toolbox.register("population_guess", initPopulation, list,
+toolbox.register("population_guess", initPopulation, list, creator.Strategy,
                  creator.Individual, "my_guess.json")
 
 # Evaluates an individual and calculates a score
@@ -152,7 +157,8 @@ def evaluate(individual):
     fakeRate = 100 * (nSeeds - nTrueSeeds) / nSeeds
     duplicateRate = 100 * nDup / nTrueSeeds
     effScore = (1 / (1 - (float(eff) / 100)))
-    return float(eff), fakeRate, duplicateRate
+    penalty = fakeRate * duplicateRate / 100
+    return float(eff) - penalty, fakeRate, duplicateRate # change to be eff not effscore
 
 # Forces individual to stay within bounds after an update
 def checkBounds(mins, maxs):
@@ -169,8 +175,8 @@ def checkBounds(mins, maxs):
         return wrapper
     return decorator
 
-# (Not used) makes sure strategy is within bounds
-def checkStrategy(minstrategy):
+# Makes sure strategy is within bounds
+def checkStrategy(minstrategy, maxstrategy):
     def decorator(func):
         def wrappper(*args, **kargs):
             children = func(*args, **kargs)
@@ -178,6 +184,8 @@ def checkStrategy(minstrategy):
                 for i, s in enumerate(child.strategy):
                     if s < minstrategy:
                         child.strategy[i] = minstrategy
+                    elif s > maxstrategy:
+                        child.strategy[i] = maxstrategy
             return children
         return wrappper
     return decorator
@@ -185,18 +193,19 @@ def checkStrategy(minstrategy):
 
 toolbox.register("evaluate", evaluate)
 # toolbox.register("mate", tools.cxESBlend, alpha=0.5)
-# toolbox.register("mutate", tools.mutESLogNormal, c=1, indpb=0.5)
+toolbox.register("mutate", tools.mutESLogNormal, c=1, indpb=INDPB)
 # toolbox.register("mate", tools.cxTwoPoint) # We don't use crossover
 
 # Mutate function draws from normal distribution with mean mu and std sigma
 # Each parameter within an indibidual is mutated with indpb chance
-toolbox.register("mutate", tools.mutGaussian,
-                 mu=0.0, sigma=SIGMA, indpb=INDPB)  
+# toolbox.register("mutate", tools.mutGaussian,
+#                  mu=0.0, sigma=SIGMA, indpb=INDPB)  
 # Population is selected by drawing tournsize individuals at random, and keeping the best one, NPOP times
 toolbox.register("select", tools.selTournament, tournsize=TournamentSize)
 
 # toolbox.decorate("mate",  checkBounds(MINS, MAXS))
 toolbox.decorate("mutate", checkBounds(MINS, MAXS))
+toolbox.decorate("mutate", checkStrategy(smin, smax))
 
 
 def printStats(fits, length, title):
@@ -276,38 +285,23 @@ def plotHOF(scoreName, scores, paramName, paramValues):
     plt.savefig(plotName)
     plt.close(fig)
 
-# Objects to keep track of Hall Of Fame (HOF) data
+# Initialize dictionary to keep track of Hall Of Fame (HOF) data
+hofData = {}
+for oneName in NAME_TO_FACTOR:
+    hofData[oneName] = []
 efficiencies = []
 fakeRateList = []
 dupRateList = []
-sigmaScats = []
-maxPts = []
-impactMaxs = []
-maxSeedsPerSpMs = []
-collisionRegionMaxs = []
-deltaRMins = []
-deltaRMaxs = []
 def main():
     # Objects that will compile the data for population graphs
     logbook = tools.Logbook()
-    stats_eff = tools.Statistics(key=lambda ind: ind.fitness.values[0])
-    stats_fake = tools.Statistics(key=lambda ind: ind.fitness.values[1])
-    stats_dup = tools.Statistics(key=lambda ind: ind.fitness.values[2])
-    stats_sigmaScattering = tools.Statistics(
-        key=lambda ind: ind[NAME_TO_INDEX["sigmaScattering"]])
-    stats_maxSeedsPerSPM = tools.Statistics(
-        key=lambda ind: ind[NAME_TO_INDEX["maxSeedsPerSpM"]])
-    stats_maxPt = tools.Statistics(key=lambda ind: ind[NAME_TO_INDEX["maxPt"]])
-    stats_collisionRegionMax = tools.Statistics(
-        key=lambda ind: ind[NAME_TO_INDEX["collisionRegionMax"]])
-    stats_impactMax = tools.Statistics(
-        key=lambda ind: ind[NAME_TO_INDEX["impactMax"]])
-    stats_collisionRegionMin = tools.Statistics(
-        key=lambda ind: ind[NAME_TO_INDEX["collisionRegionMin"]])
-    stats_deltaRMin = tools.Statistics(key=lambda ind: ind[NAME_TO_INDEX["deltaRMin"]])
-    stats_deltaRMax = tools.Statistics(key=lambda ind: ind[NAME_TO_INDEX["deltaRMax"]])
-    mstats = tools.MultiStatistics(Efficiency=stats_eff, FakeRate=stats_fake, DuplicateRate=stats_dup, sigmaScattering=stats_sigmaScattering,
-                                   maxSeedsPerSpM=stats_maxSeedsPerSPM, maxPt=stats_maxPt, collisionRegionMax=stats_collisionRegionMax, collisionRegionMin=stats_collisionRegionMin, impactMax=stats_impactMax, deltaRMax=stats_deltaRMax, deltaRMin=stats_deltaRMin)
+    popData = {}
+    popData["Efficiency"] = tools.Statistics(key=lambda ind: ind.fitness.values[0])
+    popData["FakeRate"] = tools.Statistics(key=lambda ind: ind.fitness.values[1])
+    popData["DuplicateRate"] = tools.Statistics(key=lambda ind: ind.fitness.values[2])
+    for oneName in NAME_TO_FACTOR:
+        popData[oneName] = tools.Statistics(key=lambda ind: ind[NAME_TO_INDEX[oneName]])
+    mstats = tools.MultiStatistics(popData)
     mstats.register("avg", np.mean)
     mstats.register("std", np.std)
     mstats.register("min", np.min)
@@ -371,16 +365,14 @@ def main():
 
         # record data for analyzing best individual
         for goodOne in hof:
+            for oneName in hofData:
+                paramVal = goodOne[NAME_TO_INDEX[oneName]] * NAME_TO_FACTOR[oneName]
+                if oneName == "maxSeedsPerSpM":
+                    hofData[oneName].append(int(paramVal))
+                else:
+                    hofData[oneName].append(paramVal)
             bestEff = goodOne.fitness.values[0]
             efficiencies.append(bestEff)
-            sigmaScats.append(
-                goodOne[NAME_TO_INDEX['sigmaScattering']] * NAME_TO_FACTOR["sigmaScattering"])
-            maxPts.append(goodOne[NAME_TO_INDEX['maxPt']] * NAME_TO_FACTOR["maxPt"])
-            impactMaxs.append(goodOne[NAME_TO_INDEX["impactMax"]] * NAME_TO_FACTOR["impactMax"])
-            maxSeedsPerSpMs.append(int(goodOne[NAME_TO_INDEX["maxSeedsPerSpM"]] * NAME_TO_FACTOR["maxSeedsPerSpM"]))
-            collisionRegionMaxs.append(goodOne[NAME_TO_INDEX["collisionRegionMax"]] * NAME_TO_FACTOR["collisionRegionMax"])
-            deltaRMaxs.append(goodOne[NAME_TO_INDEX["deltaRMax"]] * NAME_TO_FACTOR["deltaRMax"])
-            deltaRMins.append(goodOne[NAME_TO_INDEX["deltaRMin"]] * NAME_TO_FACTOR["deltaRMin"])
             bestFake = goodOne.fitness.values[1]
             fakeRateList.append(bestFake)
             bestDup = goodOne.fitness.values[2]
@@ -406,11 +398,7 @@ for name in NAME_TO_FACTOR:
     plotLogbook("DuplicateRate", name)
     plotLogbook("FakeRate", name)
 # Make plots for the best individual
-plotHOF("Efficiency", efficiencies, "sigmaScattering", sigmaScats)
-plotHOF("Efficiency", efficiencies, "maxPt", maxPts)
-plotHOF("Efficiency", efficiencies, "deltaRMin", deltaRMins)
-plotHOF("Efficiency", efficiencies, "deltaRMax", deltaRMaxs)
-plotHOF("DuplicateRate", dupRateList, "sigmaScattering", sigmaScats)
-plotHOF("FakeRate", fakeRateList, "sigmaScattering", sigmaScats)
-plotHOF("DuplicateRate", dupRateList, "maxSeedsPerSpM", maxSeedsPerSpMs)
-plotHOF("FakeRate", fakeRateList, "maxSeedsPerSpM", maxSeedsPerSpMs)
+for oneName in hofData:
+    plotHOF("Efficiency", efficiencies, oneName, hofData[oneName])
+    plotHOF("DuplicateRate", dupRateList, oneName, hofData[oneName])
+    plotHOF("FakeRate", fakeRateList, oneName, hofData[oneName])
