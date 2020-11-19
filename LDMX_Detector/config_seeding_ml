@@ -1,0 +1,13 @@
+--sf-fltPrtEtaMin -2.5
+--sf-fltPrtEtaMax 2.5
+--sf-fltPrtPtMin 0.5
+--sf-fltPrt3Hits true
+--sf-fltPrtOuterHits true
+--sf-deltaRMin 3
+--sf-deltaRMax 220
+--sf-impactMax 20
+--sf-sigmaScattering 2.25
+--sf-maxSeedsPerSpM 1
+--sf-maxPt 0
+--sf-radLengthPerSeed 0.05
+-l 4
