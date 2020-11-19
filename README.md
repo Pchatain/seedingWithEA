@@ -1,5 +1,5 @@
 # seedingWithEA
-All the code for my CS229 Final Project are located in GenericDetector and LDMX_Detector.
+All the code for my CS229 Final Project are located in GenericDetector and LDMX_Detector. GenericDetector contains the code I used for the 2 methods on the generic detector in ACTS, for both the muon and the ttbar samples. LDMX_Detector contains the code I used to implement both methods on the LDMX_Simulated data. In addition, the LDMX_Detector contains the file I modified in order to calculate the metrics for the seeding algorithm.
 
 testingEA.py contains an evolutionary algorithm that optimizes the seeding algorithm configuration from the acts-project.
 
